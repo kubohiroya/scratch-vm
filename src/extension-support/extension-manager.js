@@ -362,6 +362,49 @@ class ExtensionManager {
     }
 
     /**
+     * Expose an owned service boundary to a trusted host bundle. A host and this
+     * VM may have distinct module caches, so importing central-dispatch in the
+     * host is not sufficient. This port never exposes or deletes other services.
+     * @returns {object} Stable, host-owned extension service port.
+     */
+    getExtensionServicePort () {
+        if (this._hostExtensionServicePort) return this._hostExtensionServicePort;
+        const owned = new Map();
+        const validName = name => typeof name === 'string' &&
+            /^unsandboxed\.[0-9]+\.[a-zA-Z][a-zA-Z0-9]{0,63}$/.test(name);
+        const port = Object.freeze({
+            version: 1,
+            set (name, provider) {
+                if (!validName(name) || !provider || typeof provider !== 'object' ||
+                    Object.prototype.hasOwnProperty.call(dispatch.services, name)) {
+                    throw new Error('Invalid or conflicting host extension service');
+                }
+                dispatch.setServiceSync(name, provider);
+                owned.set(name, provider);
+            },
+            get (name) {
+                if (!owned.has(name)) return undefined;
+                const provider = dispatch.services[name];
+                if (provider !== owned.get(name)) throw new Error('Host extension service ownership changed');
+                return provider;
+            },
+            remove (name, provider) {
+                if (!owned.has(name) || owned.get(name) !== provider) {
+                    throw new Error('Host extension service is not owned by this port');
+                }
+                const current = dispatch.services[name];
+                if (current !== undefined && current !== provider) {
+                    throw new Error('Host extension service ownership changed');
+                }
+                delete dispatch.services[name];
+                owned.delete(name);
+            }
+        });
+        Object.defineProperty(this, '_hostExtensionServicePort', {value: port});
+        return port;
+    }
+
+    /**
      * Register an internal (non-Worker) extension object
      * @param {object} extensionObject - the extension object to register
      * @returns {string} The name of the registered extension service
