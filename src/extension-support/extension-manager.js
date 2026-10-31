@@ -364,7 +364,8 @@ class ExtensionManager {
     /**
      * Expose an owned service boundary to a trusted host bundle. A host and this
      * VM may have distinct module caches, so importing central-dispatch in the
-     * host is not sufficient. This port never exposes or deletes other services.
+     * host is not sufficient. Service mutation is owned or explicitly staged for
+     * legacy replacement; unrelated registrations are never exposed or deleted.
      * @returns {object} Stable, host-owned extension service port.
      */
     getExtensionServicePort () {
@@ -374,6 +375,8 @@ class ExtensionManager {
             /^unsandboxed\.[0-9]+\.[a-zA-Z][a-zA-Z0-9]{0,63}$/.test(name);
         const port = Object.freeze({
             version: 1,
+            prepareLegacyReplacement: ids => require('./tw-host-legacy-replacement')(this, dispatch, ids, owned),
+            loadSandboxed: options => require('./tw-host-sandboxed-extension')(this, dispatch, options),
             set (name, provider) {
                 if (!validName(name) || !provider || typeof provider !== 'object' ||
                     Object.prototype.hasOwnProperty.call(dispatch.services, name)) {
@@ -383,7 +386,7 @@ class ExtensionManager {
                 owned.set(name, provider);
             },
             get (name) {
-                if (!owned.has(name)) return undefined;
+                if (!owned.has(name)) return;
                 const provider = dispatch.services[name];
                 if (provider !== owned.get(name)) throw new Error('Host extension service ownership changed');
                 return provider;
@@ -393,7 +396,7 @@ class ExtensionManager {
                     throw new Error('Host extension service is not owned by this port');
                 }
                 const current = dispatch.services[name];
-                if (current !== undefined && current !== provider) {
+                if (typeof current !== 'undefined' && current !== provider) {
                     throw new Error('Host extension service ownership changed');
                 }
                 delete dispatch.services[name];
