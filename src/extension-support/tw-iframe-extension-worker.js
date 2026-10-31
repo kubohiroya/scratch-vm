@@ -48,18 +48,23 @@ class IframeExtensionWorker {
         this.iframe.allow = generateAllow();
         document.body.appendChild(this.iframe);
 
-        window.addEventListener('message', this._onWindowMessage.bind(this));
+        this._boundWindowMessage = this._onWindowMessage.bind(this);
+        window.addEventListener('message', this._boundWindowMessage);
+        const safeFrameSource = frameSource.replace(/<\/script/gi, '<\\/script');
+        // Keep the closing tag out of source literals rewritten by single-HTML packagers.
+        const scriptEnd = `${String.fromCharCode(60, 47)}script>`;
         const blob = new Blob([
             // eslint-disable-next-line max-len
-            `<!DOCTYPE html><body><script>window.__WRAPPED_IFRAME_ID__=${JSON.stringify(this.id)};${frameSource}</script></body>`
+            `<!DOCTYPE html><body><script>window.__WRAPPED_IFRAME_ID__=${JSON.stringify(this.id)};${safeFrameSource}${scriptEnd}</body>`
         ], {
             type: 'text/html; charset=utf-8'
         });
-        this.iframe.src = URL.createObjectURL(blob);
+        this.objectURL = URL.createObjectURL(blob);
+        this.iframe.src = this.objectURL;
     }
 
     _onWindowMessage (e) {
-        if (!e.data || e.data.vmIframeId !== this.id) {
+        if (!e.data || e.source !== this.iframe.contentWindow || e.data.vmIframeId !== this.id) {
             return;
         }
         if (e.data.ready) {
@@ -78,6 +83,14 @@ class IframeExtensionWorker {
 
     onmessage () {
         // Should be overridden
+    }
+
+    terminate () {
+        window.removeEventListener('message', this._boundWindowMessage);
+        this.iframe.remove();
+        URL.revokeObjectURL(this.objectURL);
+        this.queuedMessages.length = 0;
+        this.onmessage = () => {};
     }
 
     postMessage (data, transfer) {
