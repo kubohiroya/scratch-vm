@@ -1629,7 +1629,7 @@ class VirtualMachine extends EventEmitter {
      * @returns {!Promise<?object>} The immutable receipt, or null when the destination is stale or cancelled.
      */
     shareBlocksToTargetWithReceipt (blocks, targetId, hooks = {}) {
-        return this._shareBlocksToTarget(blocks, targetId, undefined, hooks);
+        return this._shareBlocksToTarget(blocks, targetId, null, hooks);
     }
 
     _shareBlocksToTarget (blocks, targetId, optFromTargetId, hooks) {
@@ -1663,9 +1663,12 @@ class VirtualMachine extends EventEmitter {
 
             if (fromTarget) fromTarget.resolveVariableSharingConflictsWithTarget(copiedBlocks, target);
             copiedBlocks.forEach(block => target.blocks.createBlock(block, Boolean(hooks)));
-            target.blocks.updateTargetSpecificBlocks(target.isStage, hooks ? copiedBlocks : undefined);
-            if (!hooks) return;
+            if (!hooks) {
+                target.blocks.updateTargetSpecificBlocks(target.isStage);
+                return;
+            }
 
+            target.blocks.updateTargetSpecificBlocks(target.isStage, copiedBlocks);
             const receipt = Object.freeze({
                 blockIds: Object.freeze(blockIds),
                 rootBlockIds: Object.freeze(copiedBlocks.filter(block => block.topLevel).map(block => block.id))
