@@ -1003,3 +1003,49 @@ test('clearFlyoutBlocks removes all of the flyout blocks', () => {
     vm.clearFlyoutBlocks();
     assert.strictEqual(Object.keys(flyoutBlocks._blocks).length, 0);
 });
+
+test('shareBlocksToTargetWithReceipt identifies only the committed tree and leaves selection alone', async () => {
+    const vm = new VirtualMachine();
+    const front = new Sprite(null, vm.runtime).createClone();
+    const back = new Sprite(null, vm.runtime).createClone();
+    vm.runtime.addTarget(front);
+    vm.runtime.addTarget(back);
+    vm.editingTarget = front;
+    vm.runtime.setEditingTarget(front);
+    const block = (id, parent, next) => ({
+        id, opcode: 'looks_show', parent, next, topLevel: parent === null,
+        shadow: false, fields: {}, inputs: {}, x: 0, y: 0
+    });
+    back.blocks.createBlock(block('existing', null, null));
+    const input = [block('root', null, 'child'), block('child', 'root', null)];
+    let committed;
+    const receipt = await vm.shareBlocksToTargetWithReceipt(input, back.id, {
+        prepare: () => true,
+        onCommitted(value) {
+            assert.strictEqual(back.blocks.getScripts().length, 2);
+            committed = value;
+        }
+    });
+    assert.strictEqual(receipt, committed);
+    const [root, child] = receipt.blockIds;
+    assert.deepStrictEqual(receipt.rootBlockIds, [root]);
+    assert.strictEqual(back.blocks.getBlock(root).next, child);
+    assert.strictEqual(back.blocks.getBlock(child).parent, root);
+    assert.deepStrictEqual(back.blocks.getScripts(), ['existing', root]);
+    assert.strictEqual(vm.editingTarget, front);
+    assert.strictEqual(vm.runtime.getEditingTarget(), front);
+    assert.deepStrictEqual(front.blocks.getScripts(), []);
+    assert.notStrictEqual(root, 'root');
+
+    assert.strictEqual(await vm.shareBlocksToTargetWithReceipt(input, back.id, {prepare: () => false}), null);
+    let resume;
+    vm._loadExtensions = () => new Promise(resolve => {resume = resolve;});
+    const pending = vm.shareBlocksToTargetWithReceipt(input, back.id);
+    const replacement = new Sprite(null, vm.runtime).createClone();
+    replacement.id = back.id;
+    vm.runtime.targets.splice(vm.runtime.targets.indexOf(back), 1, replacement);
+    resume();
+    assert.strictEqual(await pending, null);
+    assert.deepStrictEqual(replacement.blocks.getScripts(), []);
+    assert.deepStrictEqual(back.blocks.getScripts(), ['existing', root]);
+});

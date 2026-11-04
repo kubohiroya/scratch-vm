@@ -638,8 +638,9 @@ class Blocks {
     /**
      * Block management: create blocks and scripts from a `create` event
      * @param {!object} block Blockly create event to be processed
+     * @param {boolean} deferProjectChanged Whether the caller will notify after a batch.
      */
-    createBlock (block) {
+    createBlock (block, deferProjectChanged = false) {
         // Does the block already exist?
         // Could happen, e.g., for an unobscured shadow.
         if (Object.prototype.hasOwnProperty.call(this._blocks, block.id)) {
@@ -660,9 +661,7 @@ class Blocks {
 
         this.resetCache();
 
-        // A new block was actually added to the block container,
-        // emit a project changed event
-        this.emitProjectChanged();
+        if (!deferProjectChanged) this.emitProjectChanged();
     }
 
     /**
@@ -1020,9 +1019,9 @@ class Blocks {
     /**
      * Keep blocks up to date after they are shared between targets.
      * @param {boolean} isStage If the new target is a stage.
+     * @param {Array<object>|object} blocks The blocks to update.
      */
-    updateTargetSpecificBlocks (isStage) {
-        const blocks = this._blocks;
+    updateTargetSpecificBlocks (isStage, blocks = this._blocks) {
         for (const blockId in blocks) {
             if (isStage && blocks[blockId].opcode === 'event_whenthisspriteclicked') {
                 blocks[blockId].opcode = 'event_whenstageclicked';

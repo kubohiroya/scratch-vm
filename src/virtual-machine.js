@@ -1616,18 +1616,28 @@ class VirtualMachine extends EventEmitter {
      * @return {!Promise} Promise that resolves when the extensions and blocks have been added.
      */
     shareBlocksToTarget (blocks, targetId, optFromTargetId) {
+        return this._shareBlocksToTarget(blocks, targetId, optFromTargetId, null);
+    }
+
+    /**
+     * Install blocks and report the IDs assigned by the VM.
+     * Both hooks run synchronously at the commit point, after extension loading.
+     * prepare receives decoded blocks and may return false to cancel before writing.
+     * @param {!object} blocks Standalone blocks and extension URLs.
+     * @param {string} targetId Destination target ID.
+     * @param {object} hooks Optional synchronous prepare and onCommitted callbacks.
+     * @returns {!Promise<?object>} The immutable receipt, or null when the destination is stale or cancelled.
+     */
+    shareBlocksToTargetWithReceipt (blocks, targetId, hooks = {}) {
+        return this._shareBlocksToTarget(blocks, targetId, undefined, hooks);
+    }
+
+    _shareBlocksToTarget (blocks, targetId, optFromTargetId, hooks) {
         const sb3 = require('./serialization/sb3');
 
         const {blocks: copiedBlocks, extensionURLs} = sb3.deserializeStandaloneBlocks(blocks);
-        newBlockIds(copiedBlocks);
         const target = this.runtime.getTargetById(targetId);
-
-        if (optFromTargetId) {
-            // If the blocks are being shared from another target,
-            // resolve any possible variable conflicts that may arise.
-            const fromTarget = this.runtime.getTargetById(optFromTargetId);
-            fromTarget.resolveVariableSharingConflictsWithTarget(copiedBlocks, target);
-        }
+        const fromTarget = optFromTargetId && this.runtime.getTargetById(optFromTargetId);
 
         // Create a unique set of extensionIds that are not yet loaded
         const extensionIDs = new Set(copiedBlocks
@@ -1637,10 +1647,35 @@ class VirtualMachine extends EventEmitter {
         );
 
         return this._loadExtensions(extensionIDs, extensionURLs).then(() => {
-            copiedBlocks.forEach(block => {
-                target.blocks.createBlock(block);
+            if (!target || this.runtime.getTargetById(targetId) !== target ||
+                (optFromTargetId && (!fromTarget || this.runtime.getTargetById(optFromTargetId) !== fromTarget))) {
+                return null;
+            }
+            if (hooks && hooks.prepare && !hooks.prepare(copiedBlocks)) return null;
+            if (this.runtime.getTargetById(targetId) !== target) return null;
+
+            newBlockIds(copiedBlocks);
+            const blockIds = copiedBlocks.map(block => block.id);
+            if (new Set(blockIds).size !== blockIds.length ||
+                blockIds.some(id => id === '__proto__' || target.blocks.getBlock(id))) {
+                throw new Error('Could not allocate unique IDs for copied blocks');
+            }
+
+            if (fromTarget) fromTarget.resolveVariableSharingConflictsWithTarget(copiedBlocks, target);
+            copiedBlocks.forEach(block => target.blocks.createBlock(block, Boolean(hooks)));
+            target.blocks.updateTargetSpecificBlocks(target.isStage, hooks ? copiedBlocks : undefined);
+            if (!hooks) return;
+
+            const receipt = Object.freeze({
+                blockIds: Object.freeze(blockIds),
+                rootBlockIds: Object.freeze(copiedBlocks.filter(block => block.topLevel).map(block => block.id))
             });
-            target.blocks.updateTargetSpecificBlocks(target.isStage);
+            try {
+                if (hooks.onCommitted) hooks.onCommitted(receipt);
+            } finally {
+                if (blockIds.length) target.blocks.emitProjectChanged();
+            }
+            return receipt;
         });
     }
 
