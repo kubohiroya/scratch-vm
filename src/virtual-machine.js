@@ -6,6 +6,7 @@ if (typeof TextEncoder === 'undefined') {
 }
 const EventEmitter = require('events');
 const JSZip = require('@turbowarp/jszip');
+const useNativeProjectCompression = require('./serialization/tw-sb3-compression');
 
 const Buffer = require('buffer').Buffer;
 const centralDispatch = require('./dispatch/central-dispatch');
@@ -586,7 +587,7 @@ class VirtualMachine extends EventEmitter {
      * @returns {Promise<unknown>} Compressed sb3 file in a type determined by the type argument.
      */
     saveProjectSb3 (type) {
-        return this._saveProjectZip().generateAsync({
+        return useNativeProjectCompression(this._saveProjectZip()).generateAsync({
             // Don't configure compression here. _saveProjectZip() will set it for each file.
             type: type || 'blob',
             mimeType: 'application/x.scratch.sb3'
@@ -599,7 +600,7 @@ class VirtualMachine extends EventEmitter {
      * See: https://stuk.github.io/jszip/documentation/api_streamhelper.html
      */
     saveProjectSb3Stream (type) {
-        return this._saveProjectZip().generateInternalStream({
+        return useNativeProjectCompression(this._saveProjectZip()).generateInternalStream({
             type: type || 'arraybuffer',
             mimeType: 'application/x.scratch.sb3',
             compression: 'DEFLATE'
