@@ -599,4 +599,7 @@ const execute = function (sequencer, thread) {
     }
 };
 
+// tw: shared with tw-thread-execution-port, which restores it after a nested run.
+execute.blockUtility = blockUtility;
+
 module.exports = execute;

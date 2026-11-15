@@ -25,6 +25,7 @@ const platform = require('./tw-platform.js');
 const safeStringify = require('../util/tw-safe-stringify.js');
 const MonitorState = require('./tw-monitor-state.js');
 const Sampler = require('./tw-sampler.js');
+const createThreadExecutionPort = require('./tw-thread-execution-port.js');
 
 // Virtual I/O devices.
 const Clock = require('../io/clock');
@@ -2031,6 +2032,17 @@ class Runtime extends EventEmitter {
         }
 
         return thread;
+    }
+
+    /**
+     * Port for running a script to completion from inside a block.
+     * @returns {object} Stable, frozen port. See tw-thread-execution-port.js.
+     */
+    getThreadExecutionPort () {
+        if (this._threadExecutionPort) return this._threadExecutionPort;
+        const port = createThreadExecutionPort(this);
+        Object.defineProperty(this, '_threadExecutionPort', {value: port});
+        return port;
     }
 
     /**
