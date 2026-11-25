@@ -55,6 +55,7 @@ class Sequencer {
         this.runtime = runtime;
 
         this.activeThread = null;
+        this.blockedThread = null;
     }
 
     /**
@@ -83,11 +84,12 @@ class Sequencer {
         // Whether `stepThreads` has run through a full single tick.
         let ranFirstTick = false;
         const doneThreads = [];
+        const observer = this.runtime.blockExecutionObserver;
         // Conditions for continuing to stepping threads:
         // 1. We must have threads in the list, and some must be active.
         // 2. Time elapsed must be less than WORK_TIME.
         // 3. Either turbo mode, or no redraw has been requested by a primitive.
-        while (this.runtime.threads.length > 0 &&
+        while (!observer?.paused && this.runtime.threads.length > 0 &&
                numActiveThreads > 0 &&
                this.timer.timeElapsed() < WORK_TIME &&
                (this.runtime.turboMode || !this.runtime.redrawRequested)) {
@@ -102,7 +104,9 @@ class Sequencer {
             let stoppedThread = false;
             // Attempt to run each thread one time.
             const threads = this.runtime.threads;
-            for (let i = 0; i < threads.length; i++) {
+            const resumeAt = this.blockedThread ? Math.max(0, threads.indexOf(this.blockedThread)) : 0;
+            this.blockedThread = null;
+            for (let i = resumeAt; i < threads.length; i++) {
                 const activeThread = this.activeThread = threads[i];
                 // Check if the thread is done so it is not executed.
                 if (activeThread.stack.length === 0 ||
@@ -129,6 +133,7 @@ class Sequencer {
                     }
                     this.stepThread(activeThread);
                     activeThread.warpTimer = null;
+                    if (observer?.paused) break;
                 }
                 if (activeThread.status === Thread.STATUS_RUNNING) {
                     numActiveThreads++;
@@ -177,6 +182,8 @@ class Sequencer {
      * @param {!Thread} thread Thread object to step.
      */
     stepThread (thread) {
+        const observer = this.runtime.blockExecutionObserver;
+        if (observer?.paused) return;
         if (thread.isCompiled) {
             compilerExecute(thread);
             if (this.runtime.sampler.enableBasic) this.runtime.sampler.pc[0] = Sampler.RUNTIME;
@@ -196,6 +203,10 @@ class Sequencer {
         }
         // Save the current block ID to notice if we did control flow.
         while ((currentBlockId = thread.peekStack())) {
+            if (observer && !thread.updateMonitor && thread.target && observer.before(thread, currentBlockId) === false) {
+                this.blockedThread = thread;
+                return;
+            }
             const initialStackSize = thread.stack.length;
             let isWarpMode = thread.peekStackFrame().warpMode;
             if (isWarpMode && !thread.warpTimer) {
@@ -240,6 +251,9 @@ class Sequencer {
             } else if (thread.status === Thread.STATUS_DONE) {
                 // Nothing more to execute.
                 return;
+            }
+            if (observer && !thread.updateMonitor && thread.target && !thread.peekStackFrame()?.waitingReporter) {
+                observer.after(thread, currentBlockId);
             }
             // If no control flow has happened, switch to next block.
             if (

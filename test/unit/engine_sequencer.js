@@ -22,6 +22,45 @@ test('spec', () => {
     assert.strictEqual(typeof s.retireThread, 'function');
 });
 
+test('an execution observer pauses before the command and resumes the original thread', () => {
+    const r = new Runtime();
+    r.currentStepTime = 1000;
+    const target = new RenderedTarget(new Sprite(null, r), r);
+    const commands = [];
+    const completed = [];
+    r._primitives.test_command = (_args, util) => commands.push(util.thread.peekStack());
+    for (const [id, next] of [['before', 'conflict'], ['conflict', null], ['parallel', null]]) {
+        target.blocks.createBlock({
+            id, next, opcode: 'test_command', inputs: {}, fields: {}, topLevel: id !== 'conflict',
+            parent: id === 'conflict' ? 'before' : null
+        }, true);
+    }
+    let stopAtConflict = true;
+    const observer = {
+        paused: false,
+        before (_thread, id) {
+            if (id !== 'conflict' || !stopAtConflict) return true;
+            this.paused = true;
+            return false;
+        },
+        after (_thread, id) { completed.push(id); }
+    };
+    r.setBlockExecutionObserver(observer);
+    const first = r._pushThread('before', target);
+    r._pushThread('parallel', target);
+    r.sequencer.stepThreads();
+    assert.deepStrictEqual(commands, ['before']);
+    assert.deepStrictEqual(completed, ['before']);
+    assert.strictEqual(first.peekStack(), 'conflict');
+    r._step();
+    assert.deepStrictEqual(commands, ['before']);
+    stopAtConflict = false;
+    observer.paused = false;
+    r.sequencer.stepThreads();
+    assert.deepStrictEqual(commands, ['before', 'conflict', 'parallel']);
+    assert.deepStrictEqual(completed, commands);
+});
+
 const randomString = function () {
     const top = Math.random().toString(36);
     return top.substring(7);

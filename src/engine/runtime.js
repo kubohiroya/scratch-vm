@@ -2027,7 +2027,7 @@ class Runtime extends EventEmitter {
         }
 
         // tw: compile new threads. Do not attempt to compile monitor threads.
-        if (!(opts && opts.updateMonitor) && this.compilerOptions.enabled) {
+        if (!(opts && opts.updateMonitor) && this.compilerOptions.enabled && !this.blockExecutionObserver) {
             thread.tryCompile();
         }
 
@@ -2043,6 +2043,15 @@ class Runtime extends EventEmitter {
         const port = createThreadExecutionPort(this);
         Object.defineProperty(this, '_threadExecutionPort', {value: port});
         return port;
+    }
+
+    /**
+     * Observe interpreted commands for an isolated playtest. A paused observer
+     * holds the current threads in place until the owner resumes the session.
+     * @param {?object} observer Before/after callbacks and the paused state.
+     */
+    setBlockExecutionObserver (observer) {
+        this.blockExecutionObserver = observer;
     }
 
     /**
@@ -2071,7 +2080,7 @@ class Runtime extends EventEmitter {
         newThread.blockContainer = thread.blockContainer;
         newThread.pushStack(thread.topBlock);
         // tw: when a thread is restarted, we have to check whether the previous script was attempted to be compiled.
-        if (thread.triedToCompile && this.compilerOptions.enabled) {
+        if (thread.triedToCompile && this.compilerOptions.enabled && !this.blockExecutionObserver) {
             newThread.tryCompile();
         }
         if (!newThread.stackClick && !newThread.updateMonitor) {
@@ -2217,6 +2226,7 @@ class Runtime extends EventEmitter {
      */
     startHats (requestedHatOpcode,
         optMatchFields, optTarget) {
+        if (this.blockExecutionObserver?.paused) return [];
         if (!Object.prototype.hasOwnProperty.call(this._hats, requestedHatOpcode)) {
             // No known hat with this opcode.
             return;
@@ -2465,6 +2475,7 @@ class Runtime extends EventEmitter {
      * Start all threads that start with the green flag.
      */
     greenFlag () {
+        if (this.blockExecutionObserver?.paused) return;
         this.stopAll();
         this.emit(Runtime.PROJECT_START);
         this.updateCurrentMSecs();
@@ -2481,6 +2492,7 @@ class Runtime extends EventEmitter {
      * Stop "everything."
      */
     stopAll () {
+        if (this.blockExecutionObserver?.paused) return;
         // Emit stop event to allow blocks to clean up any state.
         this.emit(Runtime.PROJECT_STOP_ALL);
 
@@ -2536,6 +2548,7 @@ class Runtime extends EventEmitter {
      * inactive threads after each iteration.
      */
     _step () {
+        if (this.blockExecutionObserver?.paused) return;
         if (this.sampler.enableBasic) this.sampler.pc[0] = Sampler.RUNTIME;
 
         if (this.interpolationEnabled) {
