@@ -30,8 +30,9 @@ class ExtensionWorker {
 
         dispatch.waitForConnection.then(() => {
             dispatch.call('extensions', 'allocateWorker').then(async x => {
-                const [id, extension] = x;
+                const [id, extension, diagnosticSource] = x;
                 this.workerId = id;
+                dispatch.diagnosticSource = diagnosticSource;
 
                 try {
                     await loadScripts(extension);

@@ -97,6 +97,7 @@ class ExtensionManager {
          * @type {Array<string>}
          */
         this.workerURLs = [];
+        this._hostSandboxErrorListeners = new Set();
 
         /**
          * Map of loaded extension URLs/IDs (equivalent for built-in extensions) to service name.
@@ -376,6 +377,10 @@ class ExtensionManager {
             /^unsandboxed\.[0-9]+\.[a-zA-Z][a-zA-Z0-9]{0,63}$/.test(name);
         const port = Object.freeze({
             version: 1,
+            observeSandboxErrors: listener => {
+                this._hostSandboxErrorListeners.add(listener);
+                return () => this._hostSandboxErrorListeners.delete(listener);
+            },
             prepareLegacyReplacement: ids => require('./tw-host-legacy-replacement')(this, dispatch, ids, owned),
             loadSandboxed: options => require('./tw-host-sandboxed-extension')(this, dispatch, options),
             set (name, provider) {

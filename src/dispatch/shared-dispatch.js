@@ -206,10 +206,17 @@ class SharedDispatch {
             } else {
                 promise.then(
                     result => worker.postMessage({responseId: message.responseId, result}),
-                    error => worker.postMessage({responseId: message.responseId, error: `${error}`})
+                    error => worker.postMessage({
+                        responseId: message.responseId,
+                        ...this._errorResponse(error, message)
+                    })
                 );
             }
         }
+    }
+
+    _errorResponse (error) {
+        return {error: String(error)};
     }
 
     /**
