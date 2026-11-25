@@ -22,13 +22,16 @@ const loadHostSandboxedExtension = (manager, dispatch, {id, code, signal, timeou
     const worker = new Worker();
     const workerId = manager.nextExtensionWorker++;
     const url = `data:application/javascript;charset=utf-8,${encodeURIComponent(code)}`;
+    const listeners = manager._hostSandboxErrorListeners;
+    const diagnosticSource = listeners && listeners.size ? `tw-plus-extension-development-${workerId}.js` : null;
+    const runtimeURL = diagnosticSource ? `${url}${encodeURIComponent(`\n//# sourceURL=${diagnosticSource}\n`)}` : url;
     manager.workerURLs[workerId] = url;
     if (worker.iframe) {
         worker.iframe.dataset.testid = 'tw-plus-sandbox-frame';
         worker.iframe.dataset.extensionId = id;
     }
     const names = new Set();
-    const responses = new Set();
+    const responses = new Map();
     const post = worker.postMessage.bind(worker);
     let active = true;
     let allocated = false;
@@ -60,7 +63,7 @@ const loadHostSandboxedExtension = (manager, dispatch, {id, code, signal, timeou
             }
         }
         dispatch.workers = dispatch.workers.filter(item => item !== worker);
-        for (const responseId of responses) {
+        for (const responseId of responses.keys()) {
             const callbacks = dispatch.callbacks[responseId];
             if (callbacks) {
                 delete dispatch.callbacks[responseId];
@@ -97,7 +100,9 @@ const loadHostSandboxedExtension = (manager, dispatch, {id, code, signal, timeou
     };
     worker.postMessage = (message, transfer) => {
         if (!active) throw failure('EXTENSION_UNLOADED', 'The sandbox service was unloaded');
-        if (message.service && typeof message.responseId !== 'undefined') responses.add(message.responseId);
+        if (message.service && typeof message.responseId !== 'undefined') {
+            responses.set(message.responseId, names.has(message.service) && message.method !== 'getInfo');
+        }
         return post(message, transfer);
     };
     worker.onmessage = event => {
@@ -107,8 +112,22 @@ const loadHostSandboxedExtension = (manager, dispatch, {id, code, signal, timeou
         if (!message.service) {
             // A sandbox cannot inject a response into another channel's pending call.
             if (!responses.has(message.responseId)) return;
+            const isExtensionCall = responses.get(message.responseId);
             responses.delete(message.responseId);
             dispatch._onMessage(worker, event);
+            if (diagnosticSource && isExtensionCall && message.error && manager._loadedExtensions.get(id) === service) {
+                const {line, column} = message.extensionPosition || {};
+                if (Number.isSafeInteger(line) && line > 0 && line <= 9999999 &&
+                    Number.isSafeInteger(column) && column > 0 && column <= 9999999) {
+                    for (const listener of listeners) {
+                        try {
+                            listener({id, code, line, column});
+                        } catch {
+                            // Diagnostics are optional and cannot affect the service.
+                        }
+                    }
+                }
+            }
             return;
         }
         const args = message.args || [];
@@ -116,7 +135,7 @@ const loadHostSandboxedExtension = (manager, dispatch, {id, code, signal, timeou
             if (message.service === 'extensions' && message.method === 'allocateWorker') {
                 if (allocated) throw failure('REGISTRATION_FAILED', 'Sandbox allocated twice');
                 allocated = true;
-                reply(message, [workerId, url]);
+                reply(message, diagnosticSource ? [workerId, runtimeURL, diagnosticSource] : [workerId, url]);
             } else if (message.service === 'dispatch' && message.method === 'setService') {
                 const name = args[0];
                 if (!allocated || name !== `extension.${workerId}.0` || names.size ||

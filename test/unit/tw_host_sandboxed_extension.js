@@ -22,8 +22,9 @@ const setup = ({metadataId = 'sample', silent = false, duplicate = false} = {}) 
         postMessage (message) {
             if (silent) return;
             if (message.service) {
-                queueMicrotask(() => this.onmessage({data: {responseId: message.responseId,
-                    result: message.method === 'getInfo' ? {id: metadataId, blocks: []} : 42}}));
+                const result = message.method === 'getInfo' ? {id: metadataId, blocks: []} : 42;
+                const response = this.response || {result};
+                queueMicrotask(() => this.onmessage({data: {responseId: message.responseId, ...response}}));
                 if (message.method === 'handshake') this.run().catch(() => {});
             } else {
                 const callback = this.callbacks.get(message.responseId);
@@ -107,6 +108,24 @@ test('sandbox responses cannot resolve or remove a different channel callback', 
     owned.dispose();
     assert.equal(dispatch.callbacks[foreignId], foreignCallback);
     delete dispatch.callbacks[foreignId];
+});
+
+test('owned sandbox diagnostics preserve the rejection and pass only the position from its pending call', async () => {
+    const {manager, dispatch, Worker, workers} = setup();
+    const diagnostics = [];
+    manager._hostSandboxErrorListeners = new Set([diagnostic => diagnostics.push(diagnostic)]);
+    const owned = await load(manager, dispatch, {id: 'sample', code: 'verified code'}, Worker);
+    manager._loadedExtensions.set(owned.id, owned.service);
+    const worker = workers[0];
+    worker.response = {error: 'extension error', extensionPosition: {line: 4, column: 5, path: '/private/file'}};
+    worker.onmessage({data: {responseId: 9000, ...worker.response}});
+    assert.deepEqual(diagnostics, []);
+    await assert.rejects(dispatch.call(owned.service, 'value'), error => error === 'extension error');
+    assert.deepEqual(diagnostics, [{id: 'sample', code: 'verified code', line: 4, column: 5}]);
+    worker.response.extensionPosition.line = -1;
+    await assert.rejects(dispatch.call(owned.service, 'value'), error => error === 'extension error');
+    assert.equal(diagnostics.length, 1);
+    owned.dispose();
 });
 
 test('timeout and cancellation dispose a stalled worker and reject pending RPC', async () => {

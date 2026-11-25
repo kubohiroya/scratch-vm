@@ -51,6 +51,30 @@ class WorkerDispatch extends SharedDispatch {
         return this._connectionPromise;
     }
 
+    _errorResponse (error, message) {
+        const response = super._errorResponse(error);
+        const {diagnosticSource} = this;
+        if (!diagnosticSource || !message.service.startsWith('extension.')) return response;
+        try {
+            const stack = error instanceof Error && error.stack;
+            if (typeof stack !== 'string' || stack.length > 16384) return response;
+            for (const frame of stack.split('\n').slice(1)) {
+                if (!/^\s+at\s/u.test(frame)) continue;
+                const index = frame.lastIndexOf(diagnosticSource);
+                if (index < 1 || (frame[index - 1] !== '(' && frame[index - 1] !== ' ')) continue;
+                const match = /^:([1-9][0-9]{0,6}):([1-9][0-9]{0,6})\)?$/u
+                    .exec(frame.slice(index + diagnosticSource.length));
+                if (match) {
+                    response.extensionPosition = {line: Number(match[1]), column: Number(match[2])};
+                    break;
+                }
+            }
+        } catch {
+            // A custom stack getter must not interrupt the original dispatch rejection.
+        }
+        return response;
+    }
+
     /**
      * Set a local object as the global provider of the specified service.
      * WARNING: Any method on the provider can be called from any worker within the dispatch system.
