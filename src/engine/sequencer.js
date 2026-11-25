@@ -203,7 +203,8 @@ class Sequencer {
         }
         // Save the current block ID to notice if we did control flow.
         while ((currentBlockId = thread.peekStack())) {
-            if (observer && !thread.updateMonitor && thread.target && observer.before(thread, currentBlockId) === false) {
+            if (observer && !thread.updateMonitor && thread.target &&
+                observer.before(thread, currentBlockId) === false) {
                 this.blockedThread = thread;
                 return;
             }

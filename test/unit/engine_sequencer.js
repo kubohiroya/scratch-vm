@@ -31,7 +31,12 @@ test('an execution observer pauses before the command and resumes the original t
     r._primitives.test_command = (_args, util) => commands.push(util.thread.peekStack());
     for (const [id, next] of [['before', 'conflict'], ['conflict', null], ['parallel', null]]) {
         target.blocks.createBlock({
-            id, next, opcode: 'test_command', inputs: {}, fields: {}, topLevel: id !== 'conflict',
+            id,
+            next,
+            opcode: 'test_command',
+            inputs: {},
+            fields: {},
+            topLevel: id !== 'conflict',
             parent: id === 'conflict' ? 'before' : null
         }, true);
     }
@@ -43,7 +48,9 @@ test('an execution observer pauses before the command and resumes the original t
             this.paused = true;
             return false;
         },
-        after (_thread, id) { completed.push(id); }
+        after (_thread, id) {
+            completed.push(id);
+        }
     };
     r.setBlockExecutionObserver(observer);
     const first = r._pushThread('before', target);
