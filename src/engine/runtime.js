@@ -2475,7 +2475,6 @@ class Runtime extends EventEmitter {
      * Start all threads that start with the green flag.
      */
     greenFlag () {
-        if (this.blockExecutionObserver?.paused) return;
         this.stopAll();
         this.emit(Runtime.PROJECT_START);
         this.updateCurrentMSecs();
@@ -2492,7 +2491,6 @@ class Runtime extends EventEmitter {
      * Stop "everything."
      */
     stopAll () {
-        if (this.blockExecutionObserver?.paused) return;
         // Emit stop event to allow blocks to clean up any state.
         this.emit(Runtime.PROJECT_STOP_ALL);
 
