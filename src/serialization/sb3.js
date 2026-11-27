@@ -1195,7 +1195,8 @@ const parseScratchObject = function (object, runtime, extensions, zip, assets) {
         for (const blockId in object.blocks) {
             if (!Object.prototype.hasOwnProperty.call(object.blocks, blockId)) continue;
             const blockJSON = object.blocks[blockId];
-            blocks.createBlock(blockJSON);
+            // Restoring saved blocks is not a project edit.
+            blocks.createBlock(blockJSON, true);
 
             // If the block is from an extension, record it.
             const extensionID = getExtensionIdForOpcode(blockJSON.opcode);

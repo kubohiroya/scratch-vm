@@ -23,3 +23,25 @@ test('Loading a project should not emit a project changed event', async () => {
     await vm.loadProject(project);
     assert.strictEqual(projectChanged, false);
 });
+
+test('Loading SB3 blocks preserves PROJECT_LOADED and importing a sprite marks the project changed', async () => {
+    const projectUri = path.resolve(__dirname, '../fixtures/comments.sb3');
+    const project = readFileToBuffer(projectUri);
+    const vm = new VirtualMachine();
+    const events = [];
+
+    vm.runtime.on('PROJECT_CHANGED', () => events.push('PROJECT_CHANGED'));
+    vm.runtime.on('PROJECT_LOADED', () => events.push('PROJECT_LOADED'));
+    vm.attachStorage(makeTestStorage());
+
+    await vm.loadProject(project);
+    assert.deepStrictEqual(events, ['PROJECT_LOADED']);
+    const target = vm.runtime.targets.find(candidate => !candidate.isStage);
+    assert.ok(target.blocks.getScripts().length > 0);
+
+    const sprite = await vm.exportSprite(target.id, 'nodebuffer');
+    const eventCount = events.length;
+    await vm.addSprite(sprite);
+    assert.ok(events.slice(eventCount).includes('PROJECT_CHANGED'));
+    assert.deepStrictEqual(vm.editingTarget.blocks.getScripts(), target.blocks.getScripts());
+});
